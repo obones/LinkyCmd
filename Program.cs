@@ -5,6 +5,7 @@ using System.Net.NetworkInformation;
 using System.Text;
 using CommandLine;
 using System.Collections.Generic;
+using System.IO;
 
 namespace LinkyCmd
 {
@@ -84,12 +85,50 @@ namespace LinkyCmd
 
                 byte[] buffer = new byte[client.ReceiveBufferSize];
 
+                MemoryStream frameStream = new MemoryStream();
                 while (true)
                 {
                     int readCount = stream.Read(buffer, 0, buffer.Length);
                     if (readCount > 0)
                     {
-                        System.Console.Write(Encoding.ASCII.GetString(buffer, 0, readCount));
+                        int STXPos = -1;
+                        int ETXPos = -1;
+
+                        for(int bufferIndex = 0; bufferIndex < readCount; bufferIndex++)
+                            switch (buffer[bufferIndex])
+                            {
+                                case 0x02:
+                                    STXPos = bufferIndex;
+                                    break;
+                                case 0x03:
+                                    ETXPos = bufferIndex;
+                                    break;
+                            }
+
+                        if (ETXPos >= 0)
+                        {
+                            if (frameStream.Length > 0)
+                            {
+                                if (ETXPos > 0)
+                                    frameStream.Write(buffer, 0, ETXPos - 1);
+
+                                frameStream.Position = 0;
+                                Frame newFrame = new Frame(frameStream);
+                                System.Console.WriteLine(newFrame.ToString());
+                            }
+                        }
+
+                        if (STXPos >= 0)
+                        {
+                            frameStream.SetLength(0);
+                            frameStream.Write(buffer, STXPos + 1, readCount - STXPos);
+                        }
+                        else if (frameStream.Length > 0)
+                        {
+                            frameStream.Write(buffer, 0, readCount);
+                        }
+
+                        //System.Console.Write(Encoding.ASCII.GetString(buffer, 0, readCount));
 
                         // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
                     }

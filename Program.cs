@@ -12,6 +12,7 @@ namespace LinkyCmd
     {
         private const int UDP_SERVER_PORT = 51;
         private const int TCP_SERVER_PORT = 561;
+        private const int MAX_DISCOVERY_RETRY = 5;
 
         static private IPAddress FindLinkyPIC()
         {
@@ -29,14 +30,20 @@ namespace LinkyCmd
                         {
                             IPEndPoint adapterEndPoint = new IPEndPoint(unicastAddress.Address, 0);
                             UdpClient client = new UdpClient(adapterEndPoint); 
-                            client.Send(sendbuf, sendbuf.Length, broadcastEndPoint);
 
-                            var task = client.ReceiveAsync();
-                            if (task.Wait(1500) && !task.IsCanceled)
+                            int retryCount = 0;
+                            while (retryCount < MAX_DISCOVERY_RETRY)
                             {
-                                var data = task.Result.Buffer;
-                                if (data.Length == 4)
-                                    return new IPAddress(data);
+                                client.Send(sendbuf, sendbuf.Length, broadcastEndPoint);
+
+                                var task = client.ReceiveAsync();
+                                if (task.Wait(1000))// && !task.IsCanceled)
+                                {
+                                    var data = task.Result.Buffer;
+                                    if (data.Length == 4)
+                                        return new IPAddress(data);
+                                }
+                                retryCount++;
                             }
                             
                             client.Close();
@@ -64,8 +71,9 @@ namespace LinkyCmd
             else
                 linkyPICAddress = IPAddress.Parse(opts.LinkyPICAddress);
 
-            IPEndPoint endPoint = new IPEndPoint(linkyPICAddress, TCP_SERVER_PORT);
-            TcpClient client = new TcpClient(endPoint);
+            System.Console.WriteLine("Talking to LinkyPIC on " + linkyPICAddress.ToString());
+            TcpClient client = new TcpClient();
+            client.Connect(linkyPICAddress.ToString(), TCP_SERVER_PORT);
 
             NetworkStream stream = client.GetStream();
 
@@ -78,6 +86,8 @@ namespace LinkyCmd
             if (readCount > 0)
             {
                 System.Console.Write(Encoding.ASCII.GetString(buffer, 0, readCount));
+
+                // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
             }
         }
 

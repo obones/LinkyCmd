@@ -72,22 +72,28 @@ namespace LinkyCmd
                 linkyPICAddress = IPAddress.Parse(opts.LinkyPICAddress);
 
             System.Console.WriteLine("Talking to LinkyPIC on " + linkyPICAddress.ToString());
-            TcpClient client = new TcpClient();
-            client.Connect(linkyPICAddress.ToString(), TCP_SERVER_PORT);
-
-            NetworkStream stream = client.GetStream();
-
-            if (!stream.CanRead)
-                throw new Exception("Network stream is not readable!");
-
-            byte[] buffer = new byte[client.ReceiveBufferSize];
-
-            int readCount = stream.Read(buffer, 0, buffer.Length);
-            if (readCount > 0)
+            
+            using (TcpClient client = new TcpClient())
             {
-                System.Console.Write(Encoding.ASCII.GetString(buffer, 0, readCount));
+                client.Connect(linkyPICAddress.ToString(), TCP_SERVER_PORT);
 
-                // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
+                NetworkStream stream = client.GetStream();
+
+                if (!stream.CanRead)
+                    throw new Exception("Network stream is not readable!");
+
+                byte[] buffer = new byte[client.ReceiveBufferSize];
+
+                while (true)
+                {
+                    int readCount = stream.Read(buffer, 0, buffer.Length);
+                    if (readCount > 0)
+                    {
+                        System.Console.Write(Encoding.ASCII.GetString(buffer, 0, readCount));
+
+                        // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
+                    }
+                }
             }
         }
 

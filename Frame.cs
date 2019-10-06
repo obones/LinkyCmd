@@ -11,6 +11,7 @@ namespace LinkyCmd
         public DateTime TimeStamp { get; private set; } = DateTime.UtcNow;
         public int InstantatenuousCurrent  { get; private set; }
         public int ApparentPower { get; private set; }
+        public int Index { get; private set; }
         public Dictionary<string, string> Values { get; private set; } = new Dictionary<string, string>();
 
         public Frame(MemoryStream stream)
@@ -27,6 +28,7 @@ namespace LinkyCmd
 
             InstantatenuousCurrent = -1;
             ApparentPower = -1;
+            Index = -1;
 
             string strValue = null;
             int intValue = -1;
@@ -38,6 +40,10 @@ namespace LinkyCmd
             if (Values.TryGetValue("PAPP", out strValue))
                 if (int.TryParse(strValue, out intValue))
                     ApparentPower = intValue;
+
+            if (Values.TryGetValue("BASE", out strValue))
+                if (int.TryParse(strValue, out intValue))
+                    Index = intValue;
         }
         private PropertyInfo[] _PropertyInfos = null;
 

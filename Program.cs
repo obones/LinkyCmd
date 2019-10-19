@@ -16,6 +16,7 @@ namespace LinkyCmd
         private const int UDP_SERVER_PORT = 51;
         private const int TCP_SERVER_PORT = 561;
         private const int MAX_DISCOVERY_RETRY = 5;
+        private const int MAX_RECONNECT_RETRY = 5;
 
         static private IPAddress FindLinkyPIC()
         {
@@ -128,8 +129,29 @@ namespace LinkyCmd
                         else
                         {
                             cancellationSource.Cancel();
-                            System.Console.WriteLine("No answer in a timely manner, reconnecting");
-                            recreateClient(linkyPICAddress, ref client, ref stream, ref buffer, out lastClientCreationTimeStamp);
+                            System.Console.WriteLine("/!\\ No answer in a timely manner");
+                            int retryCount = 0;
+                            SocketException lastReconnectException = null;
+                            while (retryCount < MAX_RECONNECT_RETRY)
+                            {
+                                lastReconnectException = null;
+                                System.Console.WriteLine("Reconnecting...");
+                                try
+                                {
+                                    recreateClient(linkyPICAddress, ref client, ref stream, ref buffer, out lastClientCreationTimeStamp);
+                                    System.Console.WriteLine("Reconnection successful!");
+                                    break;
+                                }
+                                catch (SocketException e)
+                                {
+                                    System.Console.WriteLine("/!\\  SocketException (" + e.Message +") while reconnecting, retrying...");
+                                    lastReconnectException = e;
+                                    retryCount++;
+                                }
+                            }
+
+                            if (lastReconnectException != null)
+                                throw new Exception("Exception while trying to reconnect", lastReconnectException);
                         }
                         if (readCount > 0)
                         {

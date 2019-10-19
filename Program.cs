@@ -39,7 +39,7 @@ namespace LinkyCmd
                             {
                                 client.Send(sendbuf, sendbuf.Length, broadcastEndPoint);
 
-                                client.Client.ReceiveTimeout = 1000;
+                                client.Client.ReceiveTimeout = 1500;
                                 IPEndPoint remoteEP = null;
                                 try
                                 {

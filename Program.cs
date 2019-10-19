@@ -6,6 +6,7 @@ using System.Text;
 using CommandLine;
 using System.Collections.Generic;
 using System.IO;
+using Nest;
 
 namespace LinkyCmd
 {
@@ -66,8 +67,11 @@ namespace LinkyCmd
             [Option('l', "linkyPIC-address", Required = false, HelpText="IP address of the LinkyPIC system")]
             public string LinkyPICAddress { get; set; }
             
-            [Option('e', "es-URL", Required = false, Default="http://localhost/linky", HelpText = "ElasticSearch URL to use when performing the post request")]
+            [Option('e', "es-URL", Required = false, Default="http://localhost:9200", HelpText = "ElasticSearch URL to use when performing the post request")]
             public string ElasticSearchURL { get; set; }
+
+            [Option('i', "es-Index", Required = false, Default="linky", HelpText = "ElasticSearch index to post to")]
+            public string ElasticSearchIndex { get; set; }
         }
 
         static void RunWithValidOptions(Options opts)
@@ -121,6 +125,20 @@ namespace LinkyCmd
                                 frameStream.Position = 0;
                                 Frame newFrame = new Frame(frameStream);
                                 System.Console.WriteLine(newFrame.ToString());
+
+                                // only send valid frames
+                                if (newFrame.ApparentPower >= 0 && newFrame.InstantatenuousCurrent >= 0 && newFrame.Index >= 0)
+                                {
+                                    // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
+                                    var esSettings = new ConnectionSettings(new Uri(opts.ElasticSearchURL)).DefaultIndex(opts.ElasticSearchIndex);
+                                    var esClient = new ElasticClient(esSettings);
+                                    var indexResponse = esClient.IndexDocument(newFrame);
+                                    if (indexResponse.Result != Result.Created) 
+                                    {
+                                        System.Console.WriteLine(indexResponse);
+                                        System.Console.WriteLine(indexResponse.ServerError);
+                                    }
+                                }
                             }
                         }
 
@@ -135,8 +153,6 @@ namespace LinkyCmd
                         }
 
                         //System.Console.Write(Encoding.ASCII.GetString(buffer, 0, readCount));
-
-                        // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
                     }
                 }
             }

@@ -49,6 +49,7 @@ namespace LinkyCmd
                 if (int.TryParse(strValue, out intValue))
                     Index = intValue;
         }
+
         private PropertyInfo[] _PropertyInfos = null;
 
         public override string ToString()
@@ -65,6 +66,13 @@ namespace LinkyCmd
             }
 
             return sb.ToString();
-        }    
+        } 
+
+        [Ignore, JsonIgnore]
+        public bool IsValid { 
+            get {
+                return ApparentPower >= 0 && InstantaneousCurrent >= 0 && Index >= 0;
+            }   
+        }
     } 
 }

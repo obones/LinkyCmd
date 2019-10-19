@@ -98,62 +98,66 @@ namespace LinkyCmd
                 MemoryStream frameStream = new MemoryStream();
                 while (true)
                 {
-                    int readCount = stream.Read(buffer, 0, buffer.Length);
-                    if (readCount > 0)
+                    do
                     {
-                        int STXPos = -1;
-                        int ETXPos = -1;
-
-                        for(int bufferIndex = 0; bufferIndex < readCount; bufferIndex++)
-                            switch (buffer[bufferIndex])
-                            {
-                                case 0x02:
-                                    STXPos = bufferIndex;
-                                    break;
-                                case 0x03:
-                                    ETXPos = bufferIndex;
-                                    break;
-                            }
-
-                        if (ETXPos >= 0)
+                        int readCount = stream.Read(buffer, 0, buffer.Length);
+                        if (readCount > 0)
                         {
-                            if (frameStream.Length > 0)
-                            {
-                                if (ETXPos > 0)
-                                    frameStream.Write(buffer, 0, ETXPos - 1);
+                            int STXPos = -1;
+                            int ETXPos = -1;
 
-                                frameStream.Position = 0;
-                                Frame newFrame = new Frame(frameStream);
-                                System.Console.WriteLine(newFrame.ToString());
-
-                                // only send valid frames
-                                if (newFrame.ApparentPower >= 0 && newFrame.InstantatenuousCurrent >= 0 && newFrame.Index >= 0)
+                            for(int bufferIndex = 0; bufferIndex < readCount; bufferIndex++)
+                                switch (buffer[bufferIndex])
                                 {
-                                    // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
-                                    var esSettings = new ConnectionSettings(new Uri(opts.ElasticSearchURL)).DefaultIndex(opts.ElasticSearchIndex);
-                                    var esClient = new ElasticClient(esSettings);
-                                    var indexResponse = esClient.IndexDocument(newFrame);
-                                    if (indexResponse.Result != Result.Created) 
+                                    case 0x02:
+                                        STXPos = bufferIndex;
+                                        break;
+                                    case 0x03:
+                                        ETXPos = bufferIndex;
+                                        break;
+                                }
+
+                            if (ETXPos >= 0)
+                            {
+                                if (frameStream.Length > 0)
+                                {
+                                    if (ETXPos > 0)
+                                        frameStream.Write(buffer, 0, ETXPos - 1);
+
+                                    frameStream.Position = 0;
+                                    Frame newFrame = new Frame(frameStream);
+                                    System.Console.WriteLine(newFrame.ToString());
+
+                                    // only send valid frames
+                                    if (newFrame.ApparentPower >= 0 && newFrame.InstantaneousCurrent >= 0 && newFrame.Index >= 0)
                                     {
-                                        System.Console.WriteLine(indexResponse);
-                                        System.Console.WriteLine(indexResponse.ServerError);
+                                        // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
+                                        var esSettings = new ConnectionSettings(new Uri(opts.ElasticSearchURL)).DefaultIndex(opts.ElasticSearchIndex);
+                                        var esClient = new ElasticClient(esSettings);
+                                        var indexResponse = esClient.IndexDocument(newFrame);
+                                        if (indexResponse.Result != Result.Created) 
+                                        {
+                                            System.Console.WriteLine(indexResponse);
+                                            System.Console.WriteLine(indexResponse.ServerError);
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        if (STXPos >= 0)
-                        {
-                            frameStream.SetLength(0);
-                            frameStream.Write(buffer, STXPos + 1, readCount - STXPos);
-                        }
-                        else if (frameStream.Length > 0)
-                        {
-                            frameStream.Write(buffer, 0, readCount);
-                        }
+                            if (STXPos >= 0)
+                            {
+                                frameStream.SetLength(0);
+                                frameStream.Write(buffer, STXPos + 1, readCount - STXPos);
+                            }
+                            else if (frameStream.Length > 0)
+                            {
+                                frameStream.Write(buffer, 0, readCount);
+                            }
 
-                        //System.Console.Write(Encoding.ASCII.GetString(buffer, 0, readCount));
+                            //System.Console.Write(Encoding.ASCII.GetString(buffer, 0, readCount));
+                        }
                     }
+                    while (stream.DataAvailable);
                 }
             }
         }

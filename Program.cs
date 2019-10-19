@@ -129,7 +129,7 @@ namespace LinkyCmd
                                     System.Console.WriteLine(newFrame.ToString());
 
                                     // only send valid frames
-                                    if (newFrame.ApparentPower >= 0 && newFrame.InstantaneousCurrent >= 0 && newFrame.Index >= 0)
+                                    if (newFrame.IsValid)
                                     {
                                         // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
                                         var esSettings = new ConnectionSettings(new Uri(opts.ElasticSearchURL)).DefaultIndex(opts.ElasticSearchIndex);

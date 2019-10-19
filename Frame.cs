@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Text;
+using System.Text.Json.Serialization;
+using Nest;
 
 namespace LinkyCmd
 {
@@ -12,6 +14,8 @@ namespace LinkyCmd
         public int InstantatenuousCurrent  { get; private set; }
         public int ApparentPower { get; private set; }
         public int Index { get; private set; }
+        
+        [Ignore, JsonIgnore]
         public Dictionary<string, string> Values { get; private set; } = new Dictionary<string, string>();
 
         public Frame(MemoryStream stream)

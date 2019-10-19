@@ -7,6 +7,7 @@ using CommandLine;
 using System.Collections.Generic;
 using System.IO;
 using Nest;
+using System.Threading;
 
 namespace LinkyCmd
 {
@@ -74,6 +75,24 @@ namespace LinkyCmd
             public string ElasticSearchIndex { get; set; }
         }
 
+        static void recreateClient(IPAddress linkyPICAddress, ref TcpClient client, ref NetworkStream stream, ref byte[] buffer, out DateTime lastCreationTimeStamp)
+        {
+            if (client != null)
+                client.Close();
+
+            client = new TcpClient();
+            client.Connect(linkyPICAddress.ToString(), TCP_SERVER_PORT);
+
+            stream = client.GetStream();
+
+            if (!stream.CanRead)
+                throw new Exception("Network stream is not readable!");
+
+            buffer = new byte[client.ReceiveBufferSize];
+
+            lastCreationTimeStamp = DateTime.Now;
+        }
+
         static void RunWithValidOptions(Options opts)
         {
             IPAddress linkyPICAddress = null;
@@ -84,23 +103,34 @@ namespace LinkyCmd
 
             System.Console.WriteLine("Talking to LinkyPIC on " + linkyPICAddress.ToString());
             
-            using (TcpClient client = new TcpClient())
+            TcpClient client = null;
+            NetworkStream stream = null;
+            byte[] buffer = null;
+            DateTime lastClientCreationTimeStamp = DateTime.MinValue;
+            try
             {
-                client.Connect(linkyPICAddress.ToString(), TCP_SERVER_PORT);
-
-                NetworkStream stream = client.GetStream();
-
-                if (!stream.CanRead)
-                    throw new Exception("Network stream is not readable!");
-
-                byte[] buffer = new byte[client.ReceiveBufferSize];
+                recreateClient(linkyPICAddress, ref client, ref stream, ref buffer, out lastClientCreationTimeStamp);
 
                 MemoryStream frameStream = new MemoryStream();
                 while (true)
                 {
                     do
                     {
-                        int readCount = stream.Read(buffer, 0, buffer.Length);
+                        int readCount = 0;
+                        CancellationTokenSource cancellationSource = new CancellationTokenSource();
+                        CancellationToken cancellationToken = cancellationSource.Token;
+
+                        var task = stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
+                        if (task.Wait(5000) && task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion) 
+                        {
+                            readCount = task.Result;
+                        }
+                        else
+                        {
+                            cancellationSource.Cancel();
+                            System.Console.WriteLine("No answer in a timely manner, reconnecting");
+                            recreateClient(linkyPICAddress, ref client, ref stream, ref buffer, out lastClientCreationTimeStamp);
+                        }
                         if (readCount > 0)
                         {
                             int STXPos = -1;
@@ -159,6 +189,11 @@ namespace LinkyCmd
                     }
                     while (stream.DataAvailable);
                 }
+            }
+            finally 
+            {
+                if (client != null)
+                    client.Close();
             }
         }
 

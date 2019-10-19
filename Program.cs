@@ -37,12 +37,18 @@ namespace LinkyCmd
                             {
                                 client.Send(sendbuf, sendbuf.Length, broadcastEndPoint);
 
-                                var task = client.ReceiveAsync();
-                                if (task.Wait(1000))// && !task.IsCanceled)
+                                client.Client.ReceiveTimeout = 1000;
+                                IPEndPoint remoteEP = null;
+                                try
                                 {
-                                    var data = task.Result.Buffer;
+                                    var data = client.Receive(ref remoteEP);
                                     if (data.Length == 4)
                                         return new IPAddress(data);
+                                }
+                                catch (SocketException e)
+                                {
+                                    if (e.SocketErrorCode != SocketError.TimedOut)
+                                        throw;
                                 }
                                 retryCount++;
                             }

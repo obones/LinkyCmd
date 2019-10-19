@@ -11,10 +11,10 @@ namespace LinkyCmd
     public class Frame
     {
         public DateTime TimeStamp { get; private set; } = DateTime.UtcNow;
-        public int InstantatenuousCurrent  { get; private set; }
+        public int InstantaneousCurrent  { get; private set; }
         public int ApparentPower { get; private set; }
         public int Index { get; private set; }
-        
+
         [Ignore, JsonIgnore]
         public Dictionary<string, string> Values { get; private set; } = new Dictionary<string, string>();
 
@@ -30,7 +30,7 @@ namespace LinkyCmd
                     Values.Add(elements[0], elements[1]);
             }
 
-            InstantatenuousCurrent = -1;
+            InstantaneousCurrent = -1;
             ApparentPower = -1;
             Index = -1;
 
@@ -39,7 +39,7 @@ namespace LinkyCmd
 
             if (Values.TryGetValue("IINST", out strValue))
                 if (int.TryParse(strValue, out intValue))
-                    InstantatenuousCurrent = intValue;
+                    InstantaneousCurrent = intValue;
             
             if (Values.TryGetValue("PAPP", out strValue))
                 if (int.TryParse(strValue, out intValue))

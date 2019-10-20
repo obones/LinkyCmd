@@ -71,8 +71,15 @@ namespace LinkyCmd
         [Ignore, JsonIgnore]
         public bool IsValid { 
             get {
-                return ApparentPower >= 0 && InstantaneousCurrent >= 0 && Index >= 0;
+                return ApparentPower >= 0 && InstantaneousCurrent >= 0 && Index >= 0 && !IsEmpty;
             }   
+        }
+
+        [Ignore, JsonIgnore]
+        public bool IsEmpty {
+            get {
+                return Values.Count == 0;
+            }
         }
     } 
 }

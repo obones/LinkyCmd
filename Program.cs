@@ -113,6 +113,7 @@ namespace LinkyCmd
                 recreateClient(linkyPICAddress, ref client, ref stream, ref buffer, out lastClientCreationTimeStamp);
 
                 MemoryStream frameStream = new MemoryStream();
+                bool previousFrameWasEmpty = true;
                 while (true)
                 {
                     do
@@ -178,19 +179,32 @@ namespace LinkyCmd
 
                                     frameStream.Position = 0;
                                     Frame newFrame = new Frame(frameStream);
-                                    System.Console.WriteLine(newFrame.ToString());
 
-                                    // only send valid frames
-                                    if (newFrame.IsValid)
+                                    if (newFrame.IsEmpty)
                                     {
-                                        // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
-                                        var esSettings = new ConnectionSettings(new Uri(opts.ElasticSearchURL)).DefaultIndex(opts.ElasticSearchIndex);
-                                        var esClient = new ElasticClient(esSettings);
-                                        var indexResponse = esClient.IndexDocument(newFrame);
-                                        if (indexResponse.Result != Result.Created) 
+                                        if (!previousFrameWasEmpty)
                                         {
-                                            System.Console.WriteLine(indexResponse);
-                                            System.Console.WriteLine(indexResponse.ServerError);
+                                            previousFrameWasEmpty = true;
+                                            System.Console.WriteLine("/!\\ Empty frame received, check Linky connectivity");
+                                        }
+                                    }
+                                    else 
+                                    {
+                                        previousFrameWasEmpty = false;
+                                        System.Console.WriteLine(newFrame.ToString());
+
+                                        // only send valid frames
+                                        if (newFrame.IsValid)
+                                        {
+                                            // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
+                                            var esSettings = new ConnectionSettings(new Uri(opts.ElasticSearchURL)).DefaultIndex(opts.ElasticSearchIndex);
+                                            var esClient = new ElasticClient(esSettings);
+                                            var indexResponse = esClient.IndexDocument(newFrame);
+                                            if (indexResponse.Result != Result.Created) 
+                                            {
+                                                System.Console.WriteLine(indexResponse);
+                                                System.Console.WriteLine(indexResponse.ServerError);
+                                            }
                                         }
                                     }
                                 }

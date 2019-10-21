@@ -17,6 +17,7 @@ namespace LinkyCmd
         private const int TCP_SERVER_PORT = 561;
         private const int MAX_DISCOVERY_RETRY = 5;
         private const int MAX_RECONNECT_RETRY = 5;
+        private const int MAX_CONSECUTIVE_INVALID_FRAMES = 10;
 
         static private IPAddress FindLinkyPIC()
         {
@@ -76,7 +77,7 @@ namespace LinkyCmd
             public string ElasticSearchIndex { get; set; }
         }
 
-        static void recreateClient(IPAddress linkyPICAddress, ref TcpClient client, ref NetworkStream stream, ref byte[] buffer, out DateTime lastCreationTimeStamp)
+        static void recreateClient(IPAddress linkyPICAddress, ref TcpClient client, ref NetworkStream stream, ref byte[] buffer)
         {
             if (client != null)
                 client.Close();
@@ -90,8 +91,32 @@ namespace LinkyCmd
                 throw new Exception("Network stream is not readable!");
 
             buffer = new byte[client.ReceiveBufferSize];
+        }
 
-            lastCreationTimeStamp = DateTime.Now;
+        static void reconnect(IPAddress linkyPICAddress, ref TcpClient client, ref NetworkStream stream, ref byte[] buffer)
+        {
+            int retryCount = 0;
+            SocketException lastReconnectException = null;
+            while (retryCount < MAX_RECONNECT_RETRY)
+            {
+                lastReconnectException = null;
+                System.Console.WriteLine("Reconnecting...");
+                try
+                {
+                    recreateClient(linkyPICAddress, ref client, ref stream, ref buffer);
+                    System.Console.WriteLine("Reconnection successful!");
+                    break;
+                }
+                catch (SocketException e)
+                {
+                    System.Console.WriteLine("/!\\  SocketException (" + e.Message +") while reconnecting, retrying...");
+                    lastReconnectException = e;
+                    retryCount++;
+                }
+            }
+
+            if (lastReconnectException != null)
+                throw new Exception("Exception while trying to reconnect", lastReconnectException);
         }
 
         static void RunWithValidOptions(Options opts)
@@ -107,13 +132,13 @@ namespace LinkyCmd
             TcpClient client = null;
             NetworkStream stream = null;
             byte[] buffer = null;
-            DateTime lastClientCreationTimeStamp = DateTime.MinValue;
             try
             {
-                recreateClient(linkyPICAddress, ref client, ref stream, ref buffer, out lastClientCreationTimeStamp);
+                recreateClient(linkyPICAddress, ref client, ref stream, ref buffer);
 
                 MemoryStream frameStream = new MemoryStream();
                 bool previousFrameWasEmpty = true;
+                int consecutiveInvalidFramesCount = 0;
                 while (true)
                 {
                     do
@@ -131,28 +156,7 @@ namespace LinkyCmd
                         {
                             cancellationSource.Cancel();
                             System.Console.WriteLine("/!\\ No answer in a timely manner");
-                            int retryCount = 0;
-                            SocketException lastReconnectException = null;
-                            while (retryCount < MAX_RECONNECT_RETRY)
-                            {
-                                lastReconnectException = null;
-                                System.Console.WriteLine("Reconnecting...");
-                                try
-                                {
-                                    recreateClient(linkyPICAddress, ref client, ref stream, ref buffer, out lastClientCreationTimeStamp);
-                                    System.Console.WriteLine("Reconnection successful!");
-                                    break;
-                                }
-                                catch (SocketException e)
-                                {
-                                    System.Console.WriteLine("/!\\  SocketException (" + e.Message +") while reconnecting, retrying...");
-                                    lastReconnectException = e;
-                                    retryCount++;
-                                }
-                            }
-
-                            if (lastReconnectException != null)
-                                throw new Exception("Exception while trying to reconnect", lastReconnectException);
+                            reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
                         }
                         if (readCount > 0)
                         {
@@ -196,6 +200,8 @@ namespace LinkyCmd
                                         // only send valid frames
                                         if (newFrame.IsValid)
                                         {
+                                            consecutiveInvalidFramesCount = 0;
+
                                             // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
                                             var esSettings = new ConnectionSettings(new Uri(opts.ElasticSearchURL)).DefaultIndex(opts.ElasticSearchIndex);
                                             var esClient = new ElasticClient(esSettings);
@@ -204,6 +210,16 @@ namespace LinkyCmd
                                             {
                                                 System.Console.WriteLine(indexResponse);
                                                 System.Console.WriteLine(indexResponse.ServerError);
+                                            }
+                                        }
+                                        else 
+                                        {
+                                            consecutiveInvalidFramesCount++;
+                                            if (consecutiveInvalidFramesCount > MAX_CONSECUTIVE_INVALID_FRAMES)
+                                            {
+                                                System.Console.WriteLine("/!\\ Too many consecutive invalid frames");
+                                                reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
+                                                consecutiveInvalidFramesCount = 0;
                                             }
                                         }
                                     }

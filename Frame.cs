@@ -26,8 +26,25 @@ namespace LinkyCmd
                 string nextLine = reader.ReadLine();
                 string[] elements = nextLine.Split(' ');
 
-                if (elements.Length > 1 && !Values.ContainsKey(elements[0]))
-                    Values.Add(elements[0], elements[1]);
+                if (elements.Length > 2)
+                {
+                    string id = elements[0];
+                    string value = elements[1];
+                    char receivedChecksum = nextLine[nextLine.Length - 1]; // don't use elements[2] as the checksum character may be a space
+
+                    // Compute the checksum. Contrary to what the documentation says,
+                    // the last separator is not to be included in the checked data
+                    byte s1 = 0;
+                    string checkedData = nextLine.Substring(0, nextLine.Length - 2);
+                    foreach (char c in checkedData)
+                        s1 += (byte)c;
+                    s1 &= 0x3F;
+                    s1 += 0x20;
+
+                    // Only add valid data. We may get duplicates when transmission errors occur.
+                    if (s1 == receivedChecksum && !Values.ContainsKey(id))
+                        Values.Add(id, value);
+                }
             }
 
             InstantaneousCurrent = -1;

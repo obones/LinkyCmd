@@ -57,8 +57,12 @@ namespace LinkyCmd
                     s1 &= 0x3F;
                     s1 += 0x20;
 
-                    // Only add valid data. We may get duplicates when transmission errors occur.
-                    if (s1 == receivedChecksum && !Values.ContainsKey(id))
+                    // If data is invalid, add a prefix to the key indicate it, this way we still have values and are not an empty frame
+                    if (s1 != receivedChecksum) 
+                        id = "!" + id;
+
+                    // We may get duplicates when transmission errors occur.
+                    if (!Values.ContainsKey(id))
                         Values.Add(id, value);
                 }
             }

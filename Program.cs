@@ -91,6 +91,9 @@ namespace LinkyCmd
 
             [Option('i', "es-Index", Required = false, Default="linky", HelpText = "ElasticSearch index to post to")]
             public string ElasticSearchIndex { get; set; }
+
+            [Option('v', "verbose", Required = false, Default=false, HelpText = "Verbose output")]
+            public bool Verbose { get; set; }
         }
 
         static void recreateClient(IPAddress linkyPICAddress, ref TcpClient client, ref NetworkStream stream, ref byte[] buffer)
@@ -211,7 +214,8 @@ namespace LinkyCmd
                                     else 
                                     {
                                         previousFrameWasEmpty = false;
-                                        System.Console.WriteLine(newFrame.ToString());
+                                        if (opts.Verbose)
+                                            System.Console.WriteLine(newFrame.ToString());
 
                                         // only send valid frames
                                         if (newFrame.IsValid)

@@ -28,6 +28,9 @@ using System.Threading;
 using log4net;
 using log4net.Config;
 using log4net.Core;
+using log4net.Layout;
+using log4net.Appender;
+using log4net.Repository.Hierarchy;
 
 namespace LinkyCmd
 {
@@ -100,6 +103,9 @@ namespace LinkyCmd
 
             [Option('v', "verbose", Required = false, Default=false, HelpText = "Verbose output")]
             public bool Verbose { get; set; }
+
+            [Option('s', "use-syslog", Required = false, Default = false, HelpText = "Send log to syslog")]
+            public bool UseSyslog { get; set; }
         }
 
         static void recreateClient(IPAddress linkyPICAddress, ref TcpClient client, ref NetworkStream stream, ref byte[] buffer)
@@ -157,6 +163,23 @@ namespace LinkyCmd
                 logRepository.Threshold = Level.Debug;
             else
                 logRepository.Threshold = Level.Info;
+
+            if (opts.UseSyslog)
+            {
+                var layout = new PatternLayout();
+                layout.ConversionPattern = "%level - %message";
+                layout.ActivateOptions();
+
+                var appender = new LocalSyslogAppender();
+                appender.Facility = LocalSyslogAppender.SyslogFacility.Local0;
+                appender.Layout = layout;
+                appender.Identity = "LinkyCmd";
+                appender.ActivateOptions();
+
+                var hiearchy = (Hierarchy)logRepository;
+                hiearchy.Root.AddAppender(appender);
+                hiearchy.Configured = true;
+            }
 
             log.Info("Talking to LinkyPIC on " + linkyPICAddress.ToString());
             
@@ -293,16 +316,34 @@ namespace LinkyCmd
         {
             try
             {
-                var logRepository = LogManager.GetRepository(Assembly.GetEntryAssembly());
-                XmlConfigurator.Configure(logRepository, new FileInfo("log4net.config"));
+                var hiearchy = (Hierarchy)LogManager.GetRepository(Assembly.GetEntryAssembly());
+                var layout = new PatternLayout();
+                layout.ConversionPattern = "%date %level - %message%newline";
+                layout.ActivateOptions();
 
-                CommandLine.Parser.Default.ParseArguments<Options>(args)
-                    .WithParsed<Options>((opts) => RunWithValidOptions(opts))
-                    .WithNotParsed<Options>((errs) => HandleParseErrors(errs));
-            }
+                var appender = new ManagedColoredConsoleAppender();
+                appender.Layout = layout;
+                appender.ActivateOptions();
+
+                hiearchy.Root.AddAppender(appender);
+                hiearchy.Configured = true;
+
+                try
+                {
+                    //XmlConfigurator.Configure(logRepository, new FileInfo("log4net.config"));
+
+                    CommandLine.Parser.Default.ParseArguments<Options>(args)
+                        .WithParsed<Options>((opts) => RunWithValidOptions(opts))
+                        .WithNotParsed<Options>((errs) => HandleParseErrors(errs));
+                }
+                catch (Exception e)
+                {
+                    log.Fatal("Exception occured:" + Environment.NewLine + e);
+                }
+                }
             catch (Exception e)
             {
-                log.Fatal("Exception occured:" + Environment.NewLine + e);
+               System.Console.WriteLine("Exception occured before logger setup:" + Environment.NewLine + e);
             }
         }
     }

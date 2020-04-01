@@ -22,8 +22,12 @@ using System.Text;
 using CommandLine;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using Nest;
 using System.Threading;
+using log4net;
+using log4net.Config;
+using log4net.Core;
 
 namespace LinkyCmd
 {
@@ -34,6 +38,8 @@ namespace LinkyCmd
         private const int MAX_DISCOVERY_RETRY = 5;
         private const int MAX_RECONNECT_RETRY = 5;
         private const int MAX_CONSECUTIVE_INVALID_FRAMES = 10;
+
+        private static readonly ILog log = LogManager.GetLogger(typeof(Program));
 
         static private IPAddress FindLinkyPIC()
         {
@@ -119,16 +125,16 @@ namespace LinkyCmd
             while (retryCount < MAX_RECONNECT_RETRY)
             {
                 lastReconnectException = null;
-                System.Console.WriteLine("Reconnecting...");
+                log.Warn("Reconnecting...");
                 try
                 {
                     recreateClient(linkyPICAddress, ref client, ref stream, ref buffer);
-                    System.Console.WriteLine("Reconnection successful!");
+                    log.Warn("Reconnection successful!");
                     break;
                 }
                 catch (SocketException e)
                 {
-                    System.Console.WriteLine("/!\\  SocketException (" + e.Message +") while reconnecting, retrying...");
+                    log.Warn("/!\\  SocketException (" + e.Message +") while reconnecting, retrying...");
                     lastReconnectException = e;
                     retryCount++;
                 }
@@ -146,7 +152,13 @@ namespace LinkyCmd
             else
                 linkyPICAddress = IPAddress.Parse(opts.LinkyPICAddress);
 
-            System.Console.WriteLine("Talking to LinkyPIC on " + linkyPICAddress.ToString());
+            var logRepository = LogManager.GetRepository(Assembly.GetEntryAssembly());
+            if (opts.Verbose)
+                logRepository.Threshold = Level.Debug;
+            else
+                logRepository.Threshold = Level.Info;
+
+            log.Info("Talking to LinkyPIC on " + linkyPICAddress.ToString());
             
             TcpClient client = null;
             NetworkStream stream = null;
@@ -174,7 +186,7 @@ namespace LinkyCmd
                         else
                         {
                             cancellationSource.Cancel();
-                            System.Console.WriteLine("/!\\ No answer in a timely manner");
+                            log.Warn("/!\\ No answer in a timely manner");
                             reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
                         }
                         if (readCount > 0)
@@ -208,14 +220,13 @@ namespace LinkyCmd
                                         if (!previousFrameWasEmpty)
                                         {
                                             previousFrameWasEmpty = true;
-                                            System.Console.WriteLine("/!\\ Empty frame received, check Linky connectivity");
+                                            log.Warn("/!\\ Empty frame received, check Linky connectivity");
                                         }
                                     }
                                     else 
                                     {
                                         previousFrameWasEmpty = false;
-                                        if (opts.Verbose)
-                                            System.Console.WriteLine(newFrame.ToString());
+                                        log.Debug(newFrame.ToString());
 
                                         // only send valid frames
                                         if (newFrame.IsValid)
@@ -228,8 +239,8 @@ namespace LinkyCmd
                                             var indexResponse = esClient.IndexDocument(newFrame);
                                             if (indexResponse.Result != Result.Created) 
                                             {
-                                                System.Console.WriteLine(indexResponse);
-                                                System.Console.WriteLine(indexResponse.ServerError);
+                                                log.Error(indexResponse);
+                                                log.Error(indexResponse.ServerError);
                                             }
                                         }
                                         else 
@@ -237,7 +248,7 @@ namespace LinkyCmd
                                             consecutiveInvalidFramesCount++;
                                             if (consecutiveInvalidFramesCount > MAX_CONSECUTIVE_INVALID_FRAMES)
                                             {
-                                                System.Console.WriteLine("/!\\ Too many consecutive invalid frames");
+                                                log.Warn("/!\\ Too many consecutive invalid frames");
                                                 reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
                                                 consecutiveInvalidFramesCount = 0;
                                             }
@@ -256,7 +267,7 @@ namespace LinkyCmd
                                 frameStream.Write(buffer, 0, readCount);
                             }
 
-                            //System.Console.Write(Encoding.ASCII.GetString(buffer, 0, readCount));
+                            //log.Debug(Encoding.ASCII.GetString(buffer, 0, readCount));
                         }
                     }
                     while (stream.DataAvailable);
@@ -274,7 +285,7 @@ namespace LinkyCmd
             foreach(var error in errors)
             {
                 // no need to display, it's already done by the CommandLine library
-                //System.Console.WriteLine("Parse error: " + error);
+                //log.Error("Parse error: " + error);
             }
         }
 
@@ -282,13 +293,16 @@ namespace LinkyCmd
         {
             try
             {
+                var logRepository = LogManager.GetRepository(Assembly.GetEntryAssembly());
+                XmlConfigurator.Configure(logRepository, new FileInfo("log4net.config"));
+
                 CommandLine.Parser.Default.ParseArguments<Options>(args)
                     .WithParsed<Options>((opts) => RunWithValidOptions(opts))
                     .WithNotParsed<Options>((errs) => HandleParseErrors(errs));
             }
             catch (Exception e)
             {
-                System.Console.Write("Exception occured:" + Environment.NewLine + e);
+                log.Fatal("Exception occured:" + Environment.NewLine + e);
             }
         }
     }

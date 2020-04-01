@@ -92,7 +92,7 @@ namespace LinkyCmd
 
         class Options
         {
-            [Option('l', "linkyPIC-address", Required = false, HelpText="IP address of the LinkyPIC system")]
+            [Option('l', "linkyPIC-address", Required = false, HelpText="IP address of the LinkyPIC system. If not provided, a UDP broadcast will be performed to find LinkyPIC")]
             public string LinkyPICAddress { get; set; }
             
             [Option('e', "es-URL", Required = false, Default="http://localhost:9200", HelpText = "ElasticSearch URL to use when performing the post request")]
@@ -106,6 +106,9 @@ namespace LinkyCmd
 
             [Option('s', "use-syslog", Required = false, Default = false, HelpText = "Send log to syslog")]
             public bool UseSyslog { get; set; }
+
+            [Option("log4net-config-file", Required = false, HelpText = "The name of the log4net file to use. If indicated, completely overrides any other log related option")]
+            public string Log4NetConfigFile { get; set; }
         }
 
         static void recreateClient(IPAddress linkyPICAddress, ref TcpClient client, ref NetworkStream stream, ref byte[] buffer)
@@ -159,26 +162,35 @@ namespace LinkyCmd
                 linkyPICAddress = IPAddress.Parse(opts.LinkyPICAddress);
 
             var logRepository = LogManager.GetRepository(Assembly.GetEntryAssembly());
-            if (opts.Verbose)
-                logRepository.Threshold = Level.Debug;
-            else
-                logRepository.Threshold = Level.Info;
 
-            if (opts.UseSyslog)
+            if (string.IsNullOrEmpty(opts.Log4NetConfigFile))
             {
-                var layout = new PatternLayout();
-                layout.ConversionPattern = "%level - %message";
-                layout.ActivateOptions();
+                if (opts.Verbose)
+                    logRepository.Threshold = Level.Debug;
+                else
+                    logRepository.Threshold = Level.Info;
 
-                var appender = new LocalSyslogAppender();
-                appender.Facility = LocalSyslogAppender.SyslogFacility.Local0;
-                appender.Layout = layout;
-                appender.Identity = "LinkyCmd";
-                appender.ActivateOptions();
+                if (opts.UseSyslog)
+                {
+                    var layout = new PatternLayout();
+                    layout.ConversionPattern = "%level - %message";
+                    layout.ActivateOptions();
 
-                var hiearchy = (Hierarchy)logRepository;
-                hiearchy.Root.AddAppender(appender);
-                hiearchy.Configured = true;
+                    var appender = new LocalSyslogAppender();
+                    appender.Facility = LocalSyslogAppender.SyslogFacility.Local0;
+                    appender.Layout = layout;
+                    appender.Identity = "LinkyCmd";
+                    appender.ActivateOptions();
+
+                    var hiearchy = (Hierarchy)logRepository;
+                    hiearchy.Root.AddAppender(appender);
+                    hiearchy.Configured = true;
+                }
+            }
+            else
+            {
+                ((Hierarchy)logRepository).Root.RemoveAllAppenders();
+                XmlConfigurator.Configure(logRepository, new FileInfo(opts.Log4NetConfigFile));
             }
 
             log.Info("Talking to LinkyPIC on " + linkyPICAddress.ToString());
@@ -330,8 +342,6 @@ namespace LinkyCmd
 
                 try
                 {
-                    //XmlConfigurator.Configure(logRepository, new FileInfo("log4net.config"));
-
                     CommandLine.Parser.Default.ParseArguments<Options>(args)
                         .WithParsed<Options>((opts) => RunWithValidOptions(opts))
                         .WithNotParsed<Options>((errs) => HandleParseErrors(errs));

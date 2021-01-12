@@ -200,112 +200,114 @@ namespace LinkyCmd
             byte[] buffer = null;
             try
             {
-                recreateClient(linkyPICAddress, ref client, ref stream, ref buffer);
-
-                MemoryStream frameStream = new MemoryStream();
-                bool previousFrameWasEmpty = true;
-                int consecutiveInvalidFramesCount = 0;
-                while (true)
+                using (var esSettings = new ConnectionSettings(new Uri(opts.ElasticSearchURL)).DefaultIndex(opts.ElasticSearchIndex))
                 {
-                    do
-                    {
-                        int readCount = 0;
-                        CancellationTokenSource cancellationSource = new CancellationTokenSource();
-                        CancellationToken cancellationToken = cancellationSource.Token;
-
-                        var task = stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
-                        if (task.Wait(5000) && task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion) 
-                        {
-                            readCount = task.Result;
-                        }
-                        else
-                        {
-                            cancellationSource.Cancel();
-                            log.Warn("/!\\ No answer in a timely manner");
-                            reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
-                        }
-                        if (readCount > 0)
-                        {
-                            int STXPos = -1;
-                            int ETXPos = -1;
-
-                            for(int bufferIndex = 0; bufferIndex < readCount; bufferIndex++)
-                                switch (buffer[bufferIndex])
-                                {
-                                    case 0x02:
-                                        STXPos = bufferIndex;
-                                        break;
-                                    case 0x03:
-                                        ETXPos = bufferIndex;
-                                        break;
-                                }
-
-                            if (ETXPos >= 0)
-                            {
-                                if (frameStream.Length > 0)
-                                {
-                                    if (ETXPos > 0)
-                                        frameStream.Write(buffer, 0, ETXPos - 1);
-
-                                    frameStream.Position = 0;
-                                    Frame newFrame = new Frame(frameStream);
-
-                                    if (newFrame.IsEmpty)
-                                    {
-                                        if (!previousFrameWasEmpty)
-                                        {
-                                            previousFrameWasEmpty = true;
-                                            log.Warn("/!\\ Empty frame received, check Linky connectivity");
-                                        }
-                                    }
-                                    else 
-                                    {
-                                        previousFrameWasEmpty = false;
-                                        log.Debug(newFrame.ToString());
-
-                                        // only send valid frames
-                                        if (newFrame.IsValid)
-                                        {
-                                            consecutiveInvalidFramesCount = 0;
-
-                                            // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
-                                            var esSettings = new ConnectionSettings(new Uri(opts.ElasticSearchURL)).DefaultIndex(opts.ElasticSearchIndex);
-                                            var esClient = new ElasticClient(esSettings);
-                                            var indexResponse = esClient.IndexDocument(newFrame);
-                                            if (indexResponse.Result != Result.Created) 
-                                            {
-                                                log.Error(indexResponse);
-                                                log.Error(indexResponse.ServerError);
-                                            }
-                                        }
-                                        else 
-                                        {
-                                            consecutiveInvalidFramesCount++;
-                                            if (consecutiveInvalidFramesCount > MAX_CONSECUTIVE_INVALID_FRAMES)
-                                            {
-                                                log.Warn("/!\\ Too many consecutive invalid frames");
-                                                reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
-                                                consecutiveInvalidFramesCount = 0;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (STXPos >= 0)
-                            {
-                                frameStream.SetLength(0);
-                                frameStream.Write(buffer, STXPos + 1, readCount - STXPos);
-                            }
-                            else if (frameStream.Length > 0)
-                            {
-                                frameStream.Write(buffer, 0, readCount);
-                            }
-
-                            //log.Debug(Encoding.ASCII.GetString(buffer, 0, readCount));
-                        }
-                    }
-                    while (stream.DataAvailable);
+                  recreateClient(linkyPICAddress, ref client, ref stream, ref buffer);
+  
+                  MemoryStream frameStream = new MemoryStream();
+                  bool previousFrameWasEmpty = true;
+                  int consecutiveInvalidFramesCount = 0;
+                  while (true)
+                  {
+                      do
+                      {
+                          int readCount = 0;
+                          CancellationTokenSource cancellationSource = new CancellationTokenSource();
+                          CancellationToken cancellationToken = cancellationSource.Token;
+  
+                          var task = stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
+                          if (task.Wait(5000) && task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion) 
+                          {
+                              readCount = task.Result;
+                          }
+                          else
+                          {
+                              cancellationSource.Cancel();
+                              log.Warn("/!\\ No answer in a timely manner");
+                              reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
+                          }
+                          if (readCount > 0)
+                          {
+                              int STXPos = -1;
+                              int ETXPos = -1;
+  
+                              for(int bufferIndex = 0; bufferIndex < readCount; bufferIndex++)
+                                  switch (buffer[bufferIndex])
+                                  {
+                                      case 0x02:
+                                          STXPos = bufferIndex;
+                                          break;
+                                      case 0x03:
+                                          ETXPos = bufferIndex;
+                                          break;
+                                  }
+  
+                              if (ETXPos >= 0)
+                              {
+                                  if (frameStream.Length > 0)
+                                  {
+                                      if (ETXPos > 0)
+                                          frameStream.Write(buffer, 0, ETXPos - 1);
+  
+                                      frameStream.Position = 0;
+                                      Frame newFrame = new Frame(frameStream);
+  
+                                      if (newFrame.IsEmpty)
+                                      {
+                                          if (!previousFrameWasEmpty)
+                                          {
+                                              previousFrameWasEmpty = true;
+                                              log.Warn("/!\\ Empty frame received, check Linky connectivity");
+                                          }
+                                      }
+                                      else 
+                                      {
+                                          previousFrameWasEmpty = false;
+                                          log.Debug(newFrame.ToString());
+  
+                                          // only send valid frames
+                                          if (newFrame.IsValid)
+                                          {
+                                              consecutiveInvalidFramesCount = 0;
+  
+                                              // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
+                                              var esClient = new ElasticClient(esSettings);
+                                              var indexResponse = esClient.IndexDocument(newFrame);
+                                              if (indexResponse.Result != Result.Created) 
+                                              {
+                                                  log.Error(indexResponse);
+                                                  log.Error(indexResponse.ServerError);
+                                              }
+                                          }
+                                          else 
+                                          {
+                                              consecutiveInvalidFramesCount++;
+                                              if (consecutiveInvalidFramesCount > MAX_CONSECUTIVE_INVALID_FRAMES)
+                                              {
+                                                  log.Warn("/!\\ Too many consecutive invalid frames");
+                                                  reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
+                                                  consecutiveInvalidFramesCount = 0;
+                                              }
+                                          }
+                                      }
+                                  }
+                              }
+  
+                              if (STXPos >= 0)
+                              {
+                                  frameStream.SetLength(0);
+                                  frameStream.Write(buffer, STXPos + 1, readCount - STXPos);
+                              }
+                              else if (frameStream.Length > 0)
+                              {
+                                  frameStream.Write(buffer, 0, readCount);
+                              }
+  
+                              //log.Debug(Encoding.ASCII.GetString(buffer, 0, readCount));
+                          }
+                      }
+                      while (stream.DataAvailable);
+                  }
                 }
             }
             finally 

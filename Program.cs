@@ -189,14 +189,14 @@ namespace LinkyCmd
             mqttClient.DisconnectedAsync +=
                 (MqttClientDisconnectedEventArgs args) =>
                 {
-                    log.InfoFormat("Disconnected from MQTT broker: %s", args.ReasonString);
+                    log.InfoFormat("Disconnected from MQTT broker: {0}", args.ReasonString);
                     return Task.CompletedTask;
                 };
 
             mqttClient.ConnectingFailedAsync += 
                 (ConnectingFailedEventArgs args) =>
                 {
-                    log.WarnFormat("Connection to MQTT broker failed: %s", args.Exception.ToString());
+                    log.WarnFormat("Connection to MQTT broker failed: {0}", args.Exception.ToString());
                     return Task.CompletedTask;
                 };
 

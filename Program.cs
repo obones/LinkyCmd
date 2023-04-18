@@ -50,6 +50,7 @@ namespace LinkyCmd
 
         static private IPAddress FindLinkyPIC()
         {
+            log.Info("Looking for LinkyPIC");
             IPEndPoint broadcastEndPoint = new IPEndPoint(IPAddress.Broadcast, UDP_SERVER_PORT);
             byte[] sendbuf = Encoding.ASCII.GetBytes("LinkyPIC");
 
@@ -60,7 +61,7 @@ namespace LinkyCmd
                 {
                     foreach (var unicastAddress in properties.UnicastAddresses)
                     {
-                        if (unicastAddress.Address.AddressFamily == AddressFamily.InterNetwork)
+                        if (unicastAddress.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(unicastAddress.Address))
                         {
                             IPEndPoint adapterEndPoint = new IPEndPoint(unicastAddress.Address, 0);
                             UdpClient client = new UdpClient(adapterEndPoint); 
@@ -69,19 +70,22 @@ namespace LinkyCmd
                             int retryCount = 0;
                             while (retryCount < MAX_DISCOVERY_RETRY)
                             {
-                                client.Send(sendbuf, sendbuf.Length, broadcastEndPoint);
-
-                                client.Client.ReceiveTimeout = 1500;
-                                IPEndPoint? remoteEP = null;
+                                log.DebugFormat("Trying broadcast on {0}", unicastAddress.Address.ToString());
                                 try
                                 {
+                                    client.Send(sendbuf, sendbuf.Length, broadcastEndPoint);
+
+                                    client.Client.ReceiveTimeout = 1500;
+                                    IPEndPoint? remoteEP = null;
                                     var data = client.Receive(ref remoteEP);
                                     if (data.Length == 4)
                                         return new IPAddress(data);
                                 }
                                 catch (SocketException e)
                                 {
-                                    if (e.SocketErrorCode != SocketError.TimedOut)
+                                    if  (e.SocketErrorCode == SocketError.AccessDenied)
+                                        break;
+                                    else if (e.SocketErrorCode != SocketError.TimedOut)
                                         throw;
                                 }
                                 retryCount++;

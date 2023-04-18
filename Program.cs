@@ -19,6 +19,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.NetworkInformation;
 using System.Text;
+using System.Text.Json;
 using CommandLine;
 using System.Collections.Generic;
 using System.IO;
@@ -33,6 +34,7 @@ using log4net.Appender;
 using log4net.Repository.Hierarchy;
 using MQTTnet;
 using MQTTnet.Client;
+using MQTTnet.Extensions.ManagedClient;
 
 namespace LinkyCmd
 {
@@ -161,7 +163,49 @@ namespace LinkyCmd
                 throw new Exception("Exception while trying to reconnect", lastReconnectException);
         }
 
-        static void RunWithValidOptions(Options opts)
+        static async Task<IManagedMqttClient> buildMqttClient(Options opts)
+        {
+            // Creates a new client
+            MqttClientOptionsBuilder builder = new MqttClientOptionsBuilder()
+                                                    .WithClientId("LinkyCMD")
+                                                    .WithConnectionUri(opts.MQTTBrokerURL);
+
+            // Create client options objects
+            ManagedMqttClientOptions options = new ManagedMqttClientOptionsBuilder()
+                                    .WithAutoReconnectDelay(TimeSpan.FromSeconds(60))
+                                    .WithClientOptions(builder.Build())
+                                    .Build();
+
+            // Creates the client object
+            IManagedMqttClient mqttClient = new MqttFactory().CreateManagedMqttClient();
+
+            mqttClient.ConnectedAsync += 
+                (MqttClientConnectedEventArgs args) => 
+                {
+                    log.Debug("Connected to MQTT broker");
+                    return Task.CompletedTask;
+                };
+            mqttClient.DisconnectedAsync +=
+                (MqttClientDisconnectedEventArgs args) =>
+                {
+                    log.InfoFormat("Disconnected from MQTT broker: %s", args.ReasonString);
+                    return Task.CompletedTask;
+                };
+
+            mqttClient.ConnectingFailedAsync += 
+                (ConnectingFailedEventArgs args) =>
+                {
+                    log.WarnFormat("Connection to MQTT broker failed: %s", args.Exception.ToString());
+                    return Task.CompletedTask;
+                };
+
+            // Starts a connection with the Broker
+            await mqttClient.StartAsync(options); //.GetAwaiter().GetResult();
+
+            return mqttClient;
+        }
+
+        static async void RunWithValidOptions(Options opts)
         {
             IPAddress? linkyPICAddress = null;
             if (String.IsNullOrEmpty(opts.LinkyPICAddress))
@@ -209,6 +253,7 @@ namespace LinkyCmd
             try
             {
                 using ConnectionSettings? esSettings = (useMQTT) ? null : new ConnectionSettings(new Uri(opts.ElasticSearchURL ?? "")).DefaultIndex(opts.ElasticSearchIndex);
+                using IManagedMqttClient? mqttClient = (useMQTT) ? await buildMqttClient(opts) : null;
 
                 recreateClient(linkyPICAddress, ref client, out var stream, out var buffer);
   
@@ -280,7 +325,8 @@ namespace LinkyCmd
 
                                             if (useMQTT)
                                             {
-
+                                                var JsonFrame = JsonSerializer.Serialize(newFrame);
+                                                await mqttClient!.EnqueueAsync(opts.MQTTTopic, JsonFrame);
                                             }
                                             else
                                             {

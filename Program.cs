@@ -64,6 +64,7 @@ namespace LinkyCmd
                         {
                             IPEndPoint adapterEndPoint = new IPEndPoint(unicastAddress.Address, 0);
                             UdpClient client = new UdpClient(adapterEndPoint); 
+                            client.EnableBroadcast = true;
 
                             int retryCount = 0;
                             while (retryCount < MAX_DISCOVERY_RETRY)

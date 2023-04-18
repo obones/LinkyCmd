@@ -235,6 +235,7 @@ namespace LinkyCmd
                     appender.ActivateOptions();
 
                     var hierarchy = (Hierarchy)logRepository;
+                    hierarchy.Root.RemoveAllAppenders();
                     hierarchy.Root.AddAppender(appender);
                     hierarchy.Configured = true;
                 }

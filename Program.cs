@@ -205,7 +205,7 @@ namespace LinkyCmd
             return mqttClient;
         }
 
-        static async void RunWithValidOptions(Options opts)
+        static async Task RunWithValidOptions(Options opts)
         {
             IPAddress? linkyPICAddress = null;
             if (String.IsNullOrEmpty(opts.LinkyPICAddress))
@@ -376,16 +376,7 @@ namespace LinkyCmd
             }
         }
 
-        static void HandleParseErrors(IEnumerable<Error> errors)
-        {
-            foreach(var error in errors)
-            {
-                // no need to display, it's already done by the CommandLine library
-                //log.Error("Parse error: " + error);
-            }
-        }
-
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             try
             {
@@ -403,9 +394,9 @@ namespace LinkyCmd
 
                 try
                 {
-                    CommandLine.Parser.Default.ParseArguments<Options>(args)
-                        .WithParsed<Options>((opts) => RunWithValidOptions(opts))
-                        .WithNotParsed<Options>((errs) => HandleParseErrors(errs));
+                    var parserResult = CommandLine.Parser.Default.ParseArguments<Options>(args);
+                    if (!parserResult.Errors.Any())
+                        await RunWithValidOptions(parserResult.Value);
                 }
                 catch (Exception e)
                 {

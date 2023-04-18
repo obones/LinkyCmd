@@ -98,8 +98,11 @@ namespace LinkyCmd
 
             foreach (var info in _PropertyInfos)
             {
-                var value = info.GetValue(this, null) ?? "(null)";
-                sb.AppendLine(info.Name + ": " + value.ToString());
+                if (info.Name != nameof(Values))
+                {
+                    var value = info.GetValue(this, null) ?? "(null)";
+                    sb.AppendLine(info.Name + ": " + value.ToString());
+                }
             }
 
             return sb.ToString();

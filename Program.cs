@@ -31,6 +31,8 @@ using log4net.Core;
 using log4net.Layout;
 using log4net.Appender;
 using log4net.Repository.Hierarchy;
+using MQTTnet;
+using MQTTnet.Client;
 
 namespace LinkyCmd
 {
@@ -67,7 +69,7 @@ namespace LinkyCmd
                                 client.Send(sendbuf, sendbuf.Length, broadcastEndPoint);
 
                                 client.Client.ReceiveTimeout = 1500;
-                                IPEndPoint remoteEP = null;
+                                IPEndPoint? remoteEP = null;
                                 try
                                 {
                                     var data = client.Receive(ref remoteEP);
@@ -93,13 +95,13 @@ namespace LinkyCmd
         class Options
         {
             [Option('l', "linkyPIC-address", Required = false, HelpText="IP address of the LinkyPIC system. If not provided, a UDP broadcast will be performed to find LinkyPIC")]
-            public string LinkyPICAddress { get; set; }
+            public string? LinkyPICAddress { get; set; }
             
             [Option('e', "es-URL", Required = false, Default="http://localhost:9200", HelpText = "ElasticSearch URL to use when performing the post request")]
-            public string ElasticSearchURL { get; set; }
+            public string? ElasticSearchURL { get; set; }
 
             [Option('i', "es-Index", Required = false, Default="linky", HelpText = "ElasticSearch index to post to")]
-            public string ElasticSearchIndex { get; set; }
+            public string? ElasticSearchIndex { get; set; }
 
             [Option('v', "verbose", Required = false, Default=false, HelpText = "Verbose output")]
             public bool Verbose { get; set; }
@@ -108,10 +110,16 @@ namespace LinkyCmd
             public bool UseSyslog { get; set; }
 
             [Option("log4net-config-file", Required = false, HelpText = "The name of the log4net file to use. If indicated, completely overrides any other log related option")]
-            public string Log4NetConfigFile { get; set; }
+            public string? Log4NetConfigFile { get; set; }
+
+            [Option('m', "mqtt-broker", Required = false, Default = "", HelpText = "MQTT broker URL")]
+            public string? MQTTBrokerURL { get; set; }
+
+            [Option('t', "mqtt-topic", Required = false, Default = "linky", HelpText = "MQTT topic")]
+            public string? MQTTTopic { get; set; }
         }
 
-        static void recreateClient(IPAddress linkyPICAddress, ref TcpClient client, ref NetworkStream stream, ref byte[] buffer)
+        static void recreateClient(IPAddress linkyPICAddress, ref TcpClient? client, out NetworkStream stream, out byte[] buffer)
         {
             if (client != null)
                 client.Close();
@@ -127,17 +135,17 @@ namespace LinkyCmd
             buffer = new byte[client.ReceiveBufferSize];
         }
 
-        static void reconnect(IPAddress linkyPICAddress, ref TcpClient client, ref NetworkStream stream, ref byte[] buffer)
+        static void reconnect(IPAddress linkyPICAddress, ref TcpClient? client, ref NetworkStream stream, ref byte[] buffer)
         {
             int retryCount = 0;
-            SocketException lastReconnectException = null;
+            SocketException? lastReconnectException = null;
             while (retryCount < MAX_RECONNECT_RETRY)
             {
                 lastReconnectException = null;
                 log.Warn("Reconnecting...");
                 try
                 {
-                    recreateClient(linkyPICAddress, ref client, ref stream, ref buffer);
+                    recreateClient(linkyPICAddress, ref client, out stream, out buffer);
                     log.Warn("Reconnection successful!");
                     break;
                 }
@@ -155,7 +163,7 @@ namespace LinkyCmd
 
         static void RunWithValidOptions(Options opts)
         {
-            IPAddress linkyPICAddress = null;
+            IPAddress? linkyPICAddress = null;
             if (String.IsNullOrEmpty(opts.LinkyPICAddress))
                 linkyPICAddress = FindLinkyPIC();
             else
@@ -182,9 +190,9 @@ namespace LinkyCmd
                     appender.Identity = "LinkyCmd";
                     appender.ActivateOptions();
 
-                    var hiearchy = (Hierarchy)logRepository;
-                    hiearchy.Root.AddAppender(appender);
-                    hiearchy.Configured = true;
+                    var hierarchy = (Hierarchy)logRepository;
+                    hierarchy.Root.AddAppender(appender);
+                    hierarchy.Configured = true;
                 }
             }
             else
@@ -194,126 +202,131 @@ namespace LinkyCmd
             }
 
             log.Info("Talking to LinkyPIC on " + linkyPICAddress.ToString());
+
+            bool useMQTT = !String.IsNullOrEmpty(opts.MQTTBrokerURL);
             
-            TcpClient client = null;
-            NetworkStream stream = null;
-            byte[] buffer = null;
+            TcpClient? client = null;
             try
             {
-                using (var esSettings = new ConnectionSettings(new Uri(opts.ElasticSearchURL)).DefaultIndex(opts.ElasticSearchIndex))
+                using ConnectionSettings? esSettings = (useMQTT) ? null : new ConnectionSettings(new Uri(opts.ElasticSearchURL ?? "")).DefaultIndex(opts.ElasticSearchIndex);
+
+                recreateClient(linkyPICAddress, ref client, out var stream, out var buffer);
+  
+                MemoryStream frameStream = new MemoryStream();
+                bool previousFrameWasEmpty = true;
+                int consecutiveInvalidFramesCount = 0;
+                while (true)
                 {
-                  recreateClient(linkyPICAddress, ref client, ref stream, ref buffer);
-  
-                  MemoryStream frameStream = new MemoryStream();
-                  bool previousFrameWasEmpty = true;
-                  int consecutiveInvalidFramesCount = 0;
-                  while (true)
-                  {
-                      do
-                      {
-                          int readCount = 0;
-                          CancellationTokenSource cancellationSource = new CancellationTokenSource();
-                          CancellationToken cancellationToken = cancellationSource.Token;
-  
-                          var task = stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
-                          if (task.Wait(5000) && task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion) 
-                          {
-                              readCount = task.Result;
-                          }
-                          else
-                          {
-                              cancellationSource.Cancel();
-                              log.Warn("/!\\ No answer in a timely manner");
-                              reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
-                          }
-                          if (readCount > 0)
-                          {
-                              int STXPos = -1;
-                              int ETXPos = -1;
-  
-                              for(int bufferIndex = 0; bufferIndex < readCount; bufferIndex++)
-                                  switch (buffer[bufferIndex])
-                                  {
-                                      case 0x02:
-                                          STXPos = bufferIndex;
-                                          break;
-                                      case 0x03:
-                                          ETXPos = bufferIndex;
-                                          break;
-                                  }
-  
-                              if (ETXPos >= 0)
-                              {
-                                  if (frameStream.Length > 0)
-                                  {
-                                      if (ETXPos > 0)
-                                          frameStream.Write(buffer, 0, ETXPos - 1);
-  
-                                      frameStream.Position = 0;
-                                      Frame newFrame = new Frame(frameStream);
-  
-                                      if (newFrame.IsEmpty)
-                                      {
-                                          if (!previousFrameWasEmpty)
-                                          {
-                                              previousFrameWasEmpty = true;
-                                              log.Warn("/!\\ Empty frame received, check Linky connectivity");
-                                          }
-                                      }
-                                      else 
-                                      {
-                                          previousFrameWasEmpty = false;
-                                          log.Debug(newFrame.ToString());
-  
-                                          // only send valid frames
-                                          if (newFrame.IsValid)
-                                          {
-                                              consecutiveInvalidFramesCount = 0;
-  
-                                              // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
-                                              var esClient = new ElasticClient(esSettings);
-                                              var indexResponse = esClient.IndexDocument(newFrame);
-                                              if (indexResponse.Result != Result.Created) 
-                                              {
-                                                  log.Error(indexResponse);
-                                                  log.Error(indexResponse.ServerError);
-                                              }
-                                          }
-                                          else 
-                                          {
-                                              consecutiveInvalidFramesCount++;
-                                              if (consecutiveInvalidFramesCount > MAX_CONSECUTIVE_INVALID_FRAMES)
-                                              {
-                                                  log.Warn("/!\\ Too many consecutive invalid frames");
-                                                  reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
-                                                  consecutiveInvalidFramesCount = 0;
-                                              }
-                                          }
-                                      }
-                                  }
-                              }
-  
-                              if (STXPos >= 0)
-                              {
-                                  frameStream.SetLength(0);
-                                  frameStream.Write(buffer, STXPos + 1, readCount - STXPos);
-                              }
-                              else if (frameStream.Length > 0)
-                              {
-                                  frameStream.Write(buffer, 0, readCount);
-                              }
-  
-                              //log.Debug(Encoding.ASCII.GetString(buffer, 0, readCount));
-                          }
-                      }
-                      while (stream.DataAvailable);
-                  }
+                    do
+                    {
+                        int readCount = 0;
+                        CancellationTokenSource cancellationSource = new CancellationTokenSource();
+                        CancellationToken cancellationToken = cancellationSource.Token;
+
+                        var task = stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
+                        if (task.Wait(5000) && task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion) 
+                        {
+                            readCount = task.Result;
+                        }
+                        else
+                        {
+                            cancellationSource.Cancel();
+                            log.Warn("/!\\ No answer in a timely manner");
+                            reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
+                        }
+                        if (readCount > 0)
+                        {
+                            int STXPos = -1;
+                            int ETXPos = -1;
+
+                            for(int bufferIndex = 0; bufferIndex < readCount; bufferIndex++)
+                                switch (buffer[bufferIndex])
+                                {
+                                    case 0x02:
+                                        STXPos = bufferIndex;
+                                        break;
+                                    case 0x03:
+                                        ETXPos = bufferIndex;
+                                        break;
+                                }
+
+                            if (ETXPos >= 0)
+                            {
+                                if (frameStream.Length > 0)
+                                {
+                                    if (ETXPos > 0)
+                                        frameStream.Write(buffer, 0, ETXPos - 1);
+
+                                    frameStream.Position = 0;
+                                    Frame newFrame = new Frame(frameStream);
+
+                                    if (newFrame.IsEmpty)
+                                    {
+                                        if (!previousFrameWasEmpty)
+                                        {
+                                            previousFrameWasEmpty = true;
+                                            log.Warn("/!\\ Empty frame received, check Linky connectivity");
+                                        }
+                                    }
+                                    else 
+                                    {
+                                        previousFrameWasEmpty = false;
+                                        log.Debug(newFrame.ToString());
+
+                                        // only send valid frames
+                                        if (newFrame.IsValid)
+                                        {
+                                            consecutiveInvalidFramesCount = 0;
+
+                                            if (useMQTT)
+                                            {
+
+                                            }
+                                            else
+                                            {
+                                                // https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/nest-getting-started.html
+                                                var esClient = new ElasticClient(esSettings);
+                                                var indexResponse = esClient.IndexDocument(newFrame);
+                                                if (indexResponse.Result != Result.Created) 
+                                                {
+                                                    log.Error(indexResponse);
+                                                    log.Error(indexResponse.ServerError);
+                                                }
+                                            }
+                                        }
+                                        else 
+                                        {
+                                            consecutiveInvalidFramesCount++;
+                                            if (consecutiveInvalidFramesCount > MAX_CONSECUTIVE_INVALID_FRAMES)
+                                            {
+                                                log.Warn("/!\\ Too many consecutive invalid frames");
+                                                reconnect(linkyPICAddress, ref client, ref stream, ref buffer);
+                                                consecutiveInvalidFramesCount = 0;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (STXPos >= 0)
+                            {
+                                frameStream.SetLength(0);
+                                frameStream.Write(buffer, STXPos + 1, readCount - STXPos);
+                            }
+                            else if (frameStream.Length > 0)
+                            {
+                                frameStream.Write(buffer, 0, readCount);
+                            }
+
+                            //log.Debug(Encoding.ASCII.GetString(buffer, 0, readCount));
+                        }
+                    }
+                    while (stream.DataAvailable);
                 }
             }
             finally 
             {
-                if (client != null)
-                    client.Close();
+                client?.Close();
             }
         }
 
@@ -330,7 +343,7 @@ namespace LinkyCmd
         {
             try
             {
-                var hiearchy = (Hierarchy)LogManager.GetRepository(Assembly.GetEntryAssembly());
+                var hierarchy = (Hierarchy)LogManager.GetRepository(Assembly.GetEntryAssembly());
                 var layout = new PatternLayout();
                 layout.ConversionPattern = "%date %level - %message%newline";
                 layout.ActivateOptions();
@@ -339,8 +352,8 @@ namespace LinkyCmd
                 appender.Layout = layout;
                 appender.ActivateOptions();
 
-                hiearchy.Root.AddAppender(appender);
-                hiearchy.Configured = true;
+                hierarchy.Root.AddAppender(appender);
+                hierarchy.Configured = true;
 
                 try
                 {
@@ -350,12 +363,12 @@ namespace LinkyCmd
                 }
                 catch (Exception e)
                 {
-                    log.Fatal("Exception occured:" + Environment.NewLine + e);
+                    log.Fatal("Exception occurred:" + Environment.NewLine + e);
                 }
                 }
             catch (Exception e)
             {
-               System.Console.WriteLine("Exception occured before logger setup:" + Environment.NewLine + e);
+               System.Console.WriteLine("Exception occurred before logger setup:" + Environment.NewLine + e);
             }
         }
     }

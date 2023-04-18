@@ -39,8 +39,8 @@ namespace LinkyCmd
             StreamReader reader = new StreamReader(stream, Encoding.ASCII);
             while (!reader.EndOfStream)
             {
-                string nextLine = reader.ReadLine();
-                string[] elements = nextLine.Split(' ');
+                string? nextLine = reader.ReadLine();
+                string[] elements = nextLine!.Split(' ');
 
                 if (elements.Length > 2)
                 {
@@ -71,7 +71,7 @@ namespace LinkyCmd
             ApparentPower = -1;
             Index = -1;
 
-            string strValue = null;
+            string? strValue = null;
             int intValue = -1;
 
             if (Values.TryGetValue("IINST", out strValue))
@@ -87,7 +87,7 @@ namespace LinkyCmd
                     Index = intValue;
         }
 
-        private PropertyInfo[] _PropertyInfos = null;
+        private PropertyInfo[]? _PropertyInfos = null;
 
         public override string ToString()
         {

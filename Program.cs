@@ -99,7 +99,7 @@ namespace LinkyCmd
             [Option('l', "linkyPIC-address", Required = false, HelpText="IP address of the LinkyPIC system. If not provided, a UDP broadcast will be performed to find LinkyPIC")]
             public string? LinkyPICAddress { get; set; }
             
-            [Option('e', "es-URL", Required = false, Default="http://localhost:9200", HelpText = "ElasticSearch URL to use when performing the post request")]
+            [Option('e', "es-URL", Required = false, Default="http://localhost:9200", HelpText = "ElasticSearch URL to use when performing the post request. If indicated, MQTT publishing will not be performed")]
             public string? ElasticSearchURL { get; set; }
 
             [Option('i', "es-Index", Required = false, Default="linky", HelpText = "ElasticSearch index to post to")]
@@ -114,7 +114,7 @@ namespace LinkyCmd
             [Option("log4net-config-file", Required = false, HelpText = "The name of the log4net file to use. If indicated, completely overrides any other log related option")]
             public string? Log4NetConfigFile { get; set; }
 
-            [Option('m', "mqtt-broker", Required = false, Default = "", HelpText = "MQTT broker URL")]
+            [Option('m', "mqtt-broker", Required = false, HelpText = "MQTT broker URL. If indicated, ElasticSearch posting will not be performed")]
             public string? MQTTBrokerURL { get; set; }
 
             [Option('t', "mqtt-topic", Required = false, Default = "linky", HelpText = "MQTT topic")]

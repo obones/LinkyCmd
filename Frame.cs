@@ -15,6 +15,7 @@
  Portions created by Olivier Sannier are Copyright (C) of Olivier Sannier. All rights reserved.
 */
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -29,7 +30,33 @@ namespace LinkyCmd
         public DateTime TimeStamp { get; private set; } = DateTime.UtcNow;
         public int InstantaneousCurrent  { get; private set; }
         public int ApparentPower { get; private set; }
+
+        /// <summary>
+        /// The meter index, with the following meaning depending on the contract:
+        ///     BASE  -> The only index available
+        ///     HC    -> Full hours (HCHP tag)
+        /// </summary>
         public int Index { get; private set; }
+
+        /// <summary>
+        /// The available indexes, which may be just one
+        /// The key is the value tag
+        /// </summary>
+        public Dictionary<string, int> Indexes { get; private set; } = new();
+
+        /// <summary>
+        /// The contract identifier, valid values include BASE, HC
+        /// </summary>
+        public string? Contract { get; private set; }
+        
+        /// <summary>
+        /// The current tariff period, directly from the data frame itself.
+        /// Known values include :
+        ///    TH  -> static value for BASE contract
+        ///    HC  -> 'shallow' hours in an HC contract
+        ///    HP  -> 'full' hours in an HC contract
+        /// </summary>
+        public string? Period { get; private set; }
 
         [Ignore, JsonIgnore]
         public Dictionary<string, string> Values { get; private set; } = new Dictionary<string, string>();
@@ -71,23 +98,47 @@ namespace LinkyCmd
             ApparentPower = -1;
             Index = -1;
 
-            string? strValue = null;
-            int intValue = -1;
-
-            if (Values.TryGetValue("IINST", out strValue))
-                if (int.TryParse(strValue, out intValue))
-                    InstantaneousCurrent = intValue;
+            InstantaneousCurrent = GetIntValue("IINST");
             
-            if (Values.TryGetValue("PAPP", out strValue))
-                if (int.TryParse(strValue, out intValue))
-                    ApparentPower = intValue;
+            ApparentPower = GetIntValue("PAPP");
 
-            if (Values.TryGetValue("BASE", out strValue))
-                if (int.TryParse(strValue, out intValue))
-                    Index = intValue;
+            Contract = GetStrippedStringValue("OPTARIF");
+            Period = GetStrippedStringValue("PTEC");
+
+            StoreIndexValue("BASE", true);
+            StoreIndexValue("HCHC", true);
+            StoreIndexValue("HCHP", true);
         }
 
         private PropertyInfo[]? _PropertyInfos = null;
+
+        private int GetIntValue(string tag)
+        {
+            if (Values.TryGetValue(tag, out string? strValue))
+                if (int.TryParse(strValue, out int intValue))
+                    return intValue;
+
+            return -1;
+        }
+
+        private string? GetStrippedStringValue(string tag)
+        {
+            if (Values.TryGetValue(tag, out string? strValue))
+                return strValue.TrimEnd('.');
+
+            return null;
+        }
+
+        private void StoreIndexValue(string tag, bool asDefaultIndex)
+        {
+            var value = GetIntValue(tag);
+            if (value >= 0)
+            {
+                Indexes.Add(tag, value);
+                if (asDefaultIndex)
+                    Index = value;
+            }
+        }
 
         public override string ToString()
         {
@@ -98,9 +149,17 @@ namespace LinkyCmd
 
             foreach (var info in _PropertyInfos)
             {
-                if (info.Name != nameof(Values))
+                var value = info.GetValue(this, null) ?? "(null)";
+                if (typeof(IDictionary).IsAssignableFrom(info.PropertyType))
                 {
-                    var value = info.GetValue(this, null) ?? "(null)";
+                    var dict = (IDictionary)value;
+                    sb.Append(info.Name + ": [");
+                    foreach (DictionaryEntry item in dict)
+                        sb.Append("{ " + item.Key + " ; " + item.Value + " }");
+                    sb.AppendLine("]");
+                }
+                else
+                {
                     sb.AppendLine(info.Name + ": " + value.ToString());
                 }
             }
